@@ -1,0 +1,44 @@
+CISCO-UCS_METRICS:
+      app:
+        options:
+            redis:
+              auth:
+                  enabled: False
+            otelcollectoringest: http://splunk-otel-collector:9943
+            latency-measure: local
+            realm: us1
+            metric-base-name: cisco-ucs
+
+            sfx-api-url: https://api.us1.signalfx.com
+            token: Aa-c52HZCocuFfb9NhEW5g
+            blade_metrics_to_collect:
+                oper_state: true
+                oper_power: true
+            blade_dims_to_collect:
+                model: true
+                serial: true
+                dn: true
+                original_uuid: true
+                num_of_cpus: true
+                num_of_cores: true
+            fex_metrics_to_collect:
+                lic_state: true
+            fex_dims_to_collect:
+                model: true
+                oper_state: true
+                power: true
+                dn: true
+
+
+
+      ucs:
+        cluster_address: 10.0.0.63
+        username: ucspe
+        password: ucspe
+
+
+
+
+
+
+
