@@ -4,7 +4,7 @@ CISCO-UCS_METRICS:
             redis:
               auth:
                   enabled: False
-            otelcollectoringest: http://splunk-otel-collector:9943
+            otelcollectoringest: http://0.0.0.0:9943
             latency-measure: local
             realm: us1
             metric-base-name: cisco-ucs
