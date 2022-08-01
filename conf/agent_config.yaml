@@ -1,0 +1,273 @@
+# Default configuration file for the Linux (deb/rpm) and Windows MSI collector packages
+
+# If the collector is installed without the Linux/Windows installer script, the following
+# environment variables are required to be manually defined or configured below:
+# - SPLUNK_ACCESS_TOKEN: The Splunk access token to authenticate requests
+# - SPLUNK_API_URL: The Splunk API URL, e.g. https://api.us0.signalfx.com
+# - SPLUNK_BUNDLE_DIR: The path to the Smart Agent bundle, e.g. /usr/lib/splunk-otel-collector/agent-bundle
+# - SPLUNK_COLLECTD_DIR: The path to the collectd config directory for the Smart Agent, e.g. /usr/lib/splunk-otel-collector/agent-bundle/run/collectd
+# - SPLUNK_HEC_TOKEN: The Splunk HEC authentication token
+# - SPLUNK_HEC_URL: The Splunk HEC endpoint URL, e.g. https://ingest.us0.signalfx.com/v1/log
+# - SPLUNK_INGEST_URL: The Splunk ingest URL, e.g. https://ingest.us0.signalfx.com
+# - SPLUNK_TRACE_URL: The Splunk trace endpoint URL, e.g. https://ingest.us0.signalfx.com/v2/trace
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  http_forwarder:
+    ingress:
+      endpoint: 0.0.0.0:6060
+    egress:
+      endpoint: "https://api.${SPLUNK_REALM}.signalfx.com"
+      # Use instead when sending to gateway
+      #endpoint: "${SPLUNK_GATEWAY_URL}"
+  smartagent:
+    bundleDir: "${SPLUNK_BUNDLE_DIR}"
+    # The next two lines show the components of smartagent
+    logging:
+      level: debug
+    collectd:
+      # The next line causes http request/responses to be logged
+      logLevel: debug
+      configDir: "${SPLUNK_COLLECTD_DIR}"
+  zpages:
+    #endpoint: 0.0.0.0:55679
+  memory_ballast:
+    # In general, the ballast should be set to 1/3 of the collector's memory, the limit
+    # should be 90% of the collector's memory.
+    # The simplest way to specify the ballast size is set the value of SPLUNK_BALLAST_SIZE_MIB env variable.
+    size_mib: ${SPLUNK_BALLAST_SIZE_MIB}
+
+# Optional debugging
+# This worked back on July 2021, but as of Sept 2021 causes a startup error
+#writer:
+#  logDatapoints: true
+
+receivers:
+  smartagent/openstack/overcloud:
+    type: collectd/openstack
+    username: "${OPENSTACK_USERNAME}"
+    password: "${OPENSTACK_PASSWORD}"
+    authURL: "https://starbucks-northwest-compute-1.platform9.net/keystone/v3"
+    #projectName: "service"
+    projectName: "S6943"
+    projectDomainID: "default"
+    userDomainID: "default"
+    regionName: "northwest-compute-1"
+    intervalSeconds: 300
+
+  fluentforward:
+    endpoint: 127.0.0.1:8006
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      cpu:
+      disk:
+      filesystem:
+      memory:
+      network:
+      # System load average metrics https://en.wikipedia.org/wiki/Load_(computing)
+      load:
+      # Paging/Swap space utilization and I/O metrics
+      paging:
+      # Aggregated system process count metrics
+      processes:
+      # System processes metrics, disabled by default
+      # process:
+  smartagent/processlist:
+    type: processlist
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14250
+      thrift_binary:
+        endpoint: 0.0.0.0:6832
+      thrift_compact:
+        endpoint: 0.0.0.0:6831
+      thrift_http:
+        endpoint: 0.0.0.0:14268
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:55681
+  # This section is used to collect the OpenTelemetry Collector metrics
+  # Even if just a Splunk APM customer, these metrics are included
+  prometheus/internal:
+    config:
+      scrape_configs:
+      - job_name: 'otel-collector'
+        scrape_interval: 10s
+        static_configs:
+        - targets: ['0.0.0.0:8888']
+        metric_relabel_configs:
+          - source_labels: [ __name__ ]
+            regex: '.*grpc_io.*'
+            action: drop
+  sapm:
+    endpoint: 0.0.0.0:7276
+  smartagent/signalfx-forwarder:
+    type: signalfx-forwarder
+    listenAddress: 0.0.0.0:9082
+  signalfx:
+    endpoint: 0.0.0.0:9943
+  zipkin:
+    endpoint: 0.0.0.0:9411
+
+processors:
+  batch:
+  # Enabling the memory_limiter is strongly recommended for every pipeline.
+  # Configuration is based on the amount of memory allocated to the collector.
+  # In general, the ballast should be set to 1/3 of the collector's memory, the limit
+  # should be 90% of the collector's memory up to 2GB. The simplest way to specify the
+  # ballast size is set the value of SPLUNK_BALLAST_SIZE_MIB env variable. Alternatively, the
+  # --mem-ballast-size-mib command line flag can be passed and take priority.
+  # For more information about memory limiter, see
+  # https://github.com/open-telemetry/opentelemetry-collector/blob/main/processor/memorylimiter/README.md
+  memory_limiter:
+    ballast_size_mib: ${SPLUNK_BALLAST_SIZE_MIB}
+    check_interval: 2s
+    limit_mib: ${SPLUNK_MEMORY_LIMIT_MIB}
+  # detect if the collector is running on a cloud system
+  # important for creating unique cloud provider dimensions
+  resourcedetection:
+    detectors: [system, gce, ecs, ec2, azure]
+    override: false
+
+  # Same as above but overrides resource attributes set by receivers
+  resourcedetection/internal:
+    detectors: [system, gce, ecs, ec2, azure]
+    override: true
+
+  resource/teamlabels:
+    attributes:
+    - action: insert
+      key: 'team'
+      value: 'rie'
+    - action: insert
+      key: 'product'
+      value: 'isc'
+    - action: insert
+      key: 'siteid'
+      value: 'S6943'
+  resource/overcloudtierlabel:
+    attributes:
+    - action: insert
+      key: 'tier'
+      value: 'overcloud'
+  resource/undercloudtierlabel:
+    attributes:
+    - action: insert
+      key: 'tier'
+#  metricstransform/tryitout:
+#    transforms:
+#    - include: hypervisor_hostname
+#      action: insert
+#      new_name: ^(?P<siteid_xformed>[A-Z0-9]+)-[A-Z0-9]+$
+#      value: 'undercloud'
+  resource/updatesiteid:
+    attributes:
+    - key: hypervisor_hostname
+      pattern: ^(?P<siteid_xformed>S[0-9]+)-[A-Z0-9]+$
+      action: extract
+    #- action: extract
+    #  from_attribute: hypervisor_hostname
+    #  pattern: ^(?P<siteid_xformed>S[0-9]+)-[A-Z0-9]+$
+
+  # Optional: The following processor can be used to add a default "deployment.environment" attribute to the logs and
+  # traces when it's not populated by instrumentation libraries.
+  # If enabled, make sure to enable this processor in the pipeline below.
+  #resource/add_environment:
+    #attributes:
+      #- action: insert
+        #value: staging/production/...
+        #key: deployment.environment
+
+exporters:
+  # Traces
+  sapm:
+    access_token: "${SPLUNK_ACCESS_TOKEN}"
+    endpoint: "${SPLUNK_TRACE_URL}"
+  # Metrics + Events
+  signalfx:
+    access_token: "${SPLUNK_ACCESS_TOKEN}"
+    ingest_url: "https://api.${SPLUNK_REALM}.signalfx.com"
+    sync_host_metadata: true
+    correlation:
+  # Logs
+  splunk_hec:
+    token: "${SPLUNK_HEC_TOKEN}"
+    endpoint: "${SPLUNK_HEC_URL}"
+    source: "otel"
+    sourcetype: "otel"
+  # Send to gateway
+  otlp:
+    endpoint: "${SPLUNK_GATEWAY_URL}:4317"
+    insecure: true
+  # This next stanza will show all metrics leaving the receiver and
+  # coming into the exporter
+  logging:
+    loglevel: debug
+
+service:
+  extensions: [health_check, http_forwarder, zpages, memory_ballast]
+  pipelines:
+    traces:
+      receivers: [jaeger, otlp, sapm, smartagent/signalfx-forwarder, zipkin]
+      processors:
+      - memory_limiter
+      - batch
+      - resourcedetection
+      #- resource/add_environment
+      exporters: [sapm, signalfx]
+      # Use instead when sending to gateway
+      #exporters: [otlp, signalfx]
+    #metrics:
+    #  receivers: [hostmetrics, otlp, signalfx, smartagent/signalfx-forwarder, smartagent/openstack/overcloud]
+    #  processors: [memory_limiter, batch, resourcedetection]
+    #  # Add logging to the list of exporters to debug the receiver-exporter connection.
+    #  # exporters: [signalfx, logging]
+    #  exporters: [signalfx]
+    #  # Use instead when sending to gateway
+    #  #exporters: [otlp]
+    metrics/hostmetrics:
+      receivers: [hostmetrics]
+      processors: [memory_limiter, resource/teamlabels, batch, resourcedetection]
+      exporters:
+      - signalfx
+      - logging
+    metrics/overcloudmetrics:
+      receivers: [smartagent/openstack/overcloud]
+      processors: [memory_limiter, resource/teamlabels, resource/overcloudtierlabel, resource/updatesiteid, batch]
+      exporters:
+      - signalfx
+      - logging
+    metrics/internal:
+      receivers: [prometheus/internal]
+      processors: [memory_limiter, resource/teamlabels, batch, resourcedetection/internal]
+      exporters: [signalfx]
+      # Use instead when sending to gateway
+      #exporters: [otlp]
+    logs/signalfx:
+      receivers: [signalfx]
+      processors: [memory_limiter, batch]
+      exporters: [signalfx]
+      # Use instead when sending to gateway
+      #exporters: [otlp]
+    logs/processlist:
+      receivers: [smartagent/processlist]
+      processors: [resourcedetection]
+      exporters: [signalfx]
+    logs:
+      receivers: [fluentforward, otlp]
+      processors:
+      - memory_limiter
+      - batch
+      - resourcedetection
+      - resource/teamlabels
+      - resource/overcloudtierlabel
+      #- resource/add_environment
+      exporters: [splunk_hec]
+      # Use instead when sending to gateway
+      #exporters: [otlp]
